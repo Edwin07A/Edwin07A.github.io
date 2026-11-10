@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="400" viewBox="0 0 1000 400" role="img" aria-labelledby="title desc">
+<title id="title">微型工厂控制与通信逻辑示意</title><desc id="desc">电脑的数据采集软件与仿真平台交互，通过 Server 和 Client 两个加密盒子与 PLC 通信；触摸屏向 PLC 提供命令并接收状态。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4c8b77"/></marker></defs>
+<rect width="1000" height="400" rx="18" fill="#edf2ec"/>
+<g fill="none" stroke="#d5dfd3" stroke-width="1"><path d="M30 40H970M30 100H970M30 160H970M30 220H970M30 280H970M30 340H970"/><path d="M70 25V375M170 25V375M270 25V375M370 25V375M470 25V375M570 25V375M670 25V375M770 25V375M870 25V375M970 25V375"/></g>
+<g font-family="Segoe UI,Microsoft YaHei,sans-serif"><text x="36" y="42" font-family="Consolas,monospace" font-size="11" letter-spacing="2" fill="#537269">SYSTEM / LOGICAL VIEW</text>
+<g stroke="#4c8b77" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"><path d="M240 150H305"/><path d="M465 150H535" stroke-dasharray="5 5"/><path d="M695 150H760"/><path d="M154 207V266"/><path d="M846 207V266"/></g>
+<g fill="#fff" stroke="#c5d4c6" stroke-width="1.2"><rect x="55" y="101" width="185" height="105" rx="10"/><rect x="305" y="101" width="160" height="105" rx="10"/><rect x="535" y="101" width="160" height="105" rx="10"/><rect x="760" y="101" width="185" height="105" rx="10"/><rect x="55" y="268" width="185" height="78" rx="10"/><rect x="760" y="268" width="185" height="78" rx="10"/></g>
+<g fill="#173e33" text-anchor="middle" font-size="22" font-weight="600"><text x="148" y="143">电脑 / PC</text><text x="385" y="143">Server</text><text x="615" y="143">Client</text><text x="852" y="143">PLC</text></g>
+<g fill="#61766a" text-anchor="middle" font-size="13"><text x="148" y="174">数据采集软件 · MES</text><text x="385" y="174">电脑侧加密盒子</text><text x="615" y="174">设备侧加密盒子</text><text x="852" y="174">产线控制程序</text><text x="500" y="85">VPN 加密通道</text><text x="148" y="300" fill="#173e33" font-size="17">微型工厂仿真</text><text x="148" y="325">变量映射 · 动作与反馈</text><text x="852" y="300" fill="#173e33" font-size="17">MCGS Pro 触摸屏</text><text x="852" y="325">启动 · 复位 · 状态</text></g>
+<text x="36" y="378" fill="#61766a" font-size="10">逻辑示意 · 具体接线与网段以现场配置为准</text></g></svg>
