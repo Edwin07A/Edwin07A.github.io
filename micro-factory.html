@@ -7,11 +7,11 @@
 <header class="site-header"><div class="wrap header-inner">
 <a class="brand" href="index.html" aria-label="phil 的工控手记首页"><span class="brand-mark" aria-hidden="true">&lt;/&gt;</span>工控手记<small>BY PHIL</small></a>
 <nav aria-label="主导航"><a href="index.html#posts">文章</a><a class="about-link" href="index.html#about">关于</a><a href="https://github.com/Edwin07A" target="_blank" rel="noopener noreferrer">GitHub ↗</a><button class="theme-toggle" type="button" data-theme-toggle>深色</button></nav>
-</div></header><div class="reading-progress" aria-hidden="true"></div><main id="main" class="wrap"><header class="article-header"><a class="back-link" href="index.html#posts">← 返回文章列表</a><div class="eyebrow">COMPETITION / ISCC · PROJECT NOTES</div><h1>第二次参加 ISCC：微型工厂的 PLC 控制与加密实践</h1><p class="article-deck">从仿真工位到 PLC 程序，再到加密页面与通信准入。这是我的第二次 ISCC 参赛记录。</p><div class="article-meta"><span>作者 phil / Edwin07A</span><span>约 10 分钟阅读</span><span>比赛复盘初稿</span></div><div class="tags"><span class="tag">PLC</span><span class="tag">TIA Portal</span><span class="tag">工业安全</span><span class="tag">ISCC</span></div></header>
+</div></header><div class="reading-progress" aria-hidden="true"></div><main id="main" class="wrap"><header class="article-header"><a class="back-link" href="index.html#posts">← 返回文章列表</a><div class="eyebrow">COMPETITION / ISCC · PROJECT NOTES</div><h1>第二次参加 ISCC：微型工厂的 PLC 控制与加密实践</h1><p class="article-deck">从仿真工位到 PLC 程序，再到加密页面与通信准入。这是我的第二次 ISCC 参赛记录。</p><div class="article-meta"><span>作者 phil / Edwin07A</span><span>约 17 分钟阅读</span><span>比赛复盘初稿</span></div><div class="tags"><span class="tag">PLC</span><span class="tag">TIA Portal</span><span class="tag">工业安全</span><span class="tag">ISCC</span></div></header>
 <div class="article-layout"><article class="article-body" aria-label="比赛复盘正文"><p>这是我第二次参加全国大学生信息安全与对抗技术竞赛（ISCC）。这次参与的任务是微型工厂模拟产线：主办方提供工厂仿真页面，我们需要根据各个工位和元件，在博图（TIA Portal）里编写 PLC 程序，再通过数据采集软件，把 PLC 变量与仿真元件对应起来。最终，通过触摸屏上的启动按钮，让产线自动完成物料流转并送入对应货架。</p>
 <p>我主要负责程序编写，以及安全任务二和任务四，也协助队友完成其他部分。因此，这篇复盘会重点介绍产线控制、MES 文本加解密页面，以及加密盒子与人脸识别的接入；加密狗和网络对抗部分则作为团队方案一起说明。</p>
 <p>除了自动控制，这次比赛还包含信息安全任务：加密狗校验、页面内容加密、异常探测与通信保护，以及人脸识别准入。它们分别涉及程序运行许可、数据内容、通信链路和操作人员身份。</p>
-<p>这篇文章记录我使用的技术方案，也说明各个模块解决的问题和目前能够确认的边界。</p>
+<p>这篇文章记录技术方案，也记录几个具体问题：每个部件用完以后怎样复位、为什么拦截了数据修改仍然能被扫描到，以及怎样把人脸识别放到正确的一端。</p>
 <h2 id="section-1">先把系统之间的关系理清</h2>
 <p>这套系统包含几个相互配合的部分：博图用于编写 PLC 控制程序；仿真平台提供工位、传感器和执行元件；数据采集软件负责把 PLC 中的变量与仿真对象连接起来；MCGS Pro 用于制作触摸屏操作界面。电脑与 PLC 之间的通信链路接入加密盒子。</p>
 <p><img alt="系统关系示意图：电脑通过 Server 和 Client 两个加密盒子连接 PLC，触摸屏提供操作入口" src="assets/images/system-overview.svg" /></p>
@@ -60,8 +60,16 @@
 <pre><code class="language-text">复位 → 出料 → 取料与供料 → 检测 → 搬运并放入货架
 </code></pre>
 <p>上面是便于理解的业务流程，不代表最终程序中的块名、步号或梯形图结构。</p>
-<p>对这类顺序控制，值得重点检查的是动作的完成条件：推缸是否到位、物料是否已经出现、取料是否完成，以及设备是否满足下一步动作的条件。只发送动作命令，不能代替对完成反馈的判断。</p>
-<p>同样，复位需要考虑流程状态。机械位置回到起点后，控制程序里残留的运行标志、完成状态和待执行命令，也需要与新的起始状态保持一致。这是阅读和复查最终 PLC 程序时应当一起核对的部分。</p>
+<h3 id="_2">每个部件用完以后都要复位</h3>
+<p>编程时，一个需要反复处理的问题是：各个部件完成自己的动作后，还要复位，为后续动作或下一轮使用做好准备。整条产线启动前的复位只是其中一部分，单个部件在循环中的复位同样需要写进控制流程。</p>
+<p>因此，写一个动作时，需要一起考虑它何时开始、何时算完成，以及完成后怎样恢复。例如，对有往返动作的元件，要分别关注动作到位和返回到位；具体使用哪些信号判断，取决于仿真场景提供的元件与接口。</p>
+<pre><code class="language-text">满足动作条件 → 执行动作 → 确认完成 → 执行复位 → 确认可再次使用
+</code></pre>
+<p>这段示意表达的是整理程序时需要关注的动作周期，不是最终工程的梯形图或具体步号。实际动作之间是否允许并行，也需要按工位关系判断。</p>
+<h3 id="_3">不同元件和工位要分别梳理逻辑</h3>
+<p>另一个工作量来自元件和工位之间的差异。不同台子的控制逻辑不同，同一个台子上的不同元件，也有各自的动作条件与反馈。写完一个元件后，不能只换变量地址就假定另一处能按同样方式工作。</p>
+<p>对我来说，这部分编程需要逐个理解元件的使用方式，再把各自的动作、复位和工位之间的交接串起来。整体流程看起来只有出料、检测和入库几步，落实到程序里，还要处理每一步内部的条件。</p>
+<p>除了机械位置，流程标志和待执行命令也需要与当前状态一致。设备回到起点时，程序是否也已经准备好开始下一轮，是后续核对程序块时需要一起检查的内容。</p>
 <h2 id="section-3">变量采集让程序与仿真场景连起来</h2>
 <p>PLC 程序写好之后，我通过数据采集软件，把博图中的变量与仿真平台各个元件连接起来。控制链路可以概括为：</p>
 <pre><code class="language-text">PLC 输出变量 → 采集与映射 → 仿真执行元件
@@ -86,7 +94,16 @@ PLC 输入变量 ← 采集与映射 ← 仿真传感器反馈
 <p>这是方案层面的逻辑表达。具体的心跳变量、超时时间、KEY 校验公式以及许可失效后的输出处理，需要结合最终博图程序中的实现继续展开。</p>
 <h2 id="section-6">加密任务二：在 MES 中加入文本加解密页面</h2>
 <p>第二项任务中，我在数据采集软件的 MES 页面里加入了加解密功能，对应文件是 <code>DeCode.aspx</code>。这个页面接收文本和口令，使用浏览器的 Web Crypto API 在本地完成处理。</p>
-<h3 id="_3">从口令派生密钥，再加密文本</h3>
+<p>虽然扩展名是 <code>.aspx</code>，这段加密逻辑实际写在页面里的 JavaScript 中。页面外层仍然使用 MES 原有的导航和登录会话，加密按钮则在浏览器中调用 <code>encryptText</code>，把输入内容变成可以复制保存的密文；解密按钮执行相反的过程。所提供代码中的这段处理不需要把输入文本和口令发送给一个加密接口。</p>
+<pre><code class="language-text">文本 + 口令
+    ↓ UTF-8 编码
+随机盐值 → PBKDF2 派生 AES 密钥
+    ↓
+AES-GCM 加密 ← 随机 nonce + 认证头
+    ↓
+打包盐值、nonce、密文与标签 → Base64URL → 可复制的文本
+</code></pre>
+<h3 id="_5">从口令派生密钥，再加密文本</h3>
 <p>页面使用 PBKDF2-HMAC-SHA-256 从口令派生 AES 密钥。代码中的迭代次数是 600,000 次，每次加密随机生成 16 字节盐值，再使用 AES-256-GCM 加密文本。GCM 的 nonce 为 12 字节，认证标签为 128 位。</p>
 <p>下面是页面中的密钥派生逻辑：</p>
 <pre><code class="language-javascript">async function deriveKey(password, salt) {
@@ -103,33 +120,186 @@ PLC 输入变量 ← 采集与映射 ← 仿真传感器反馈
 }
 </code></pre>
 <p>随机盐值与 nonce 使相同文本、相同口令在多次加密时产生不同结果。认证标签用于在解密时校验数据；口令错误或密文被修改时，认证通常无法通过。</p>
-<h3 id="_4">密文格式与页面交互</h3>
+<p>这里有两个容易混淆的概念：用户输入的是口令，AES 实际使用的是派生后的 256 位密钥。盐值参与密钥派生，用来避免同一个口令总是得到相同的密钥；nonce 参与某一次 GCM 加密。二者都由 <code>crypto.getRandomValues</code> 生成，各自承担不同的职责。</p>
+<p>代码把派生密钥的 <code>extractable</code> 参数设为 <code>false</code>，因此不能通过常规的 Web Crypto 导出接口取出密钥。但页面脚本仍然需要使用它完成加解密，这个设置不能替代对页面运行环境的保护。</p>
+<h3 id="_6">加密函数怎样组织数据</h3>
+<p>下面是原页面 <code>encryptText</code> 函数的核心实现，只调整换行并省略了前面的明文长度检查：</p>
+<pre><code class="language-javascript">var salt = window.crypto.getRandomValues(new Uint8Array(16));
+var nonce = window.crypto.getRandomValues(new Uint8Array(12));
+var key = await deriveKey(password, salt);
+var header = utf8Encoder.encode(FORMAT_PREFIX + ITERATIONS + &quot;.&quot;);
+
+var encrypted = new Uint8Array(await window.crypto.subtle.encrypt(
+    {
+        name: &quot;AES-GCM&quot;,
+        iv: nonce,
+        additionalData: header,
+        tagLength: 128
+    },
+    key,
+    plainBytes
+));
+
+var packed = new Uint8Array(salt.length + nonce.length + encrypted.length);
+packed.set(salt, 0);
+packed.set(nonce, salt.length);
+packed.set(encrypted, salt.length + nonce.length);
+
+return FORMAT_PREFIX + ITERATIONS + &quot;.&quot; + toBase64Url(packed);
+</code></pre>
+<p><code>plainBytes</code> 是前面用 UTF-8 编码得到的明文字节，<code>FORMAT_PREFIX</code> 为 <code>MESENC1.</code>，<code>ITERATIONS</code> 为 <code>600000</code>。Web Crypto 返回的 <code>encrypted</code> 已经包含密文和 GCM 认证标签，因此打包时无需另行拼接标签。</p>
+<p>把盐值、nonce 和密文一起保存，是为了之后能重建解密所需的参数；真正需要单独保管的是口令。</p>
+<h3 id="_7">密文格式与页面交互</h3>
 <p>输出格式为：</p>
 <pre><code class="language-text">MESENC1.600000.&lt;Base64URL 编码的数据&gt;
 
 编码的数据 = 16 字节盐值 || 12 字节 nonce || 密文与认证标签
 </code></pre>
 <p>格式前缀和迭代次数同时参与附加认证数据（AAD）。解密代码校验前缀、迭代次数和数据长度，使用相同口令派生密钥，然后尝试解密并校验 UTF-8 文本。</p>
+<p>AAD 参与认证，但不会被隐藏。因此这个格式仍有公开且固定的 <code>MESENC1.600000.</code> 前缀，不能据此宣称输出“没有固定特征”。随机变化的是后面的参数与加密结果。</p>
+<p>去掉文本前缀并完成 Base64URL 解码后，二进制包的布局如下。这里的偏移单位都是字节：</p>
+<table>
+<thead>
+<tr>
+<th>起始偏移</th>
+<th>长度</th>
+<th>保存的内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>16 字节</td>
+<td>PBKDF2 盐值</td>
+</tr>
+<tr>
+<td>16</td>
+<td>12 字节</td>
+<td>AES-GCM nonce</td>
+</tr>
+<tr>
+<td>28</td>
+<td>与明文字节数相同</td>
+<td>密文</td>
+</tr>
+<tr>
+<td>28 + 明文字节数</td>
+<td>16 字节</td>
+<td>GCM 认证标签</td>
+</tr>
+</tbody>
+</table>
+<p>二进制包比明文多 44 字节，再经过 Base64URL 编码并加上文本前缀，最终输出会更长。页面的 1 MiB 上限按 UTF-8 字节数检查，因此汉字数量和字节数不能直接等同。</p>
 <p>这里的 Base64URL 用于把二进制结果表示成便于复制的文本，保密性来自 AES-GCM。盐值与 nonce 随密文保存，口令不包含在这个输出包里。</p>
 <p>交互上，页面提供加密、解密、清空、显示或隐藏口令，以及复制结果。加密入口要求口令至少 12 个字符，单次明文上限为 1 MiB。处理过程中按钮会暂时禁用，结束后清空口令输入框。清空输入框不等于能够证明浏览器内存已经被安全擦除。</p>
-<h3 id="_5">文本加密与链路加密分别解决什么</h3>
+<h3 id="_8">解密时怎样处理错误</h3>
+<p>解密函数先检查输入是否符合 <code>MESENC1</code> 格式、是否使用支持的迭代次数，以及解码后的包长度是否合理。通过这些检查后，才会取出盐值和 nonce，重新派生密钥并执行解密：</p>
+<pre><code class="language-javascript">try {
+    plainBytes = await window.crypto.subtle.decrypt(
+        { name: &quot;AES-GCM&quot;, iv: nonce, additionalData: header, tagLength: 128 },
+        key,
+        encrypted
+    );
+} catch (error) {
+    throw new Error(&quot;解密失败：密钥错误或密文已损坏。&quot;);
+}
+</code></pre>
+<p>这里不把认证失败后的数据作为正常文本输出。口令错误和密文被篡改都会导致校验失败，页面统一提示用户检查口令或密文。认证通过后，还会用严格的 UTF-8 解码检查文本有效性。</p>
+<h3 id="_9">整理文章时的代码复核</h3>
+<p>为核对这部分讲解，整理文章时对原页面中的加解密函数进行了独立复核：中文及换行文本能够加密后还原；同一文本和口令连续加密会产生不同输出；错误口令、修改后的密文以及不支持的迭代次数均被拒绝。复核使用本地 JavaScript 环境的 Web Crypto 实现，未运行 MES 后端，也未验证真实通信链路，不能代替比赛现场的页面测试和攻防记录。</p>
+<h3 id="_10">文本加密与链路加密分别解决什么</h3>
 <p>这个页面能确认实现的是文本内容加解密。指定文本经用户输入并加密后，可以作为密文保存；主动解密后，明文仍需要在页面上显示。</p>
 <p>因此，这份代码不能单独证明整个 MES 页面、HTTP 通信或 PLC 报文都已加密，也不能保证解密后的明文无法被当前浏览器的调试工具读取。Web Crypto 通常还需要 HTTPS 或 localhost 等安全上下文，直接通过普通局域网 HTTP 地址访问时应检查浏览器支持情况。</p>
 <p>此外，评分表提到了国密算法，而当前页面使用 AES-GCM。页面采用的算法、链路使用的算法以及赛题的具体判分要求，需要分别核对。</p>
 <h2 id="section-7">加密任务三：探测与数据注入对抗</h2>
 <p>第三项任务涉及异常检测和通信保护，也是我协助队友完成的部分。我们使用的工具包括 Nmap / Zenmap，以及 PLC 信号修改工具。结合赛题，它们分别用于观察比赛网络中的主机与服务暴露情况，以及尝试修改 PLC 数据，检验防护是否有效。</p>
-<p>这项任务需要同时观察业务侧的变化：在出现探测行为时，通信是否受到影响；出现未经预期的数据写入时，PLC 中的值是否变化；防护动作发生后，正常采集和控制是否仍然可用。单独一张工具运行截图，无法说明整个防护过程。</p>
-<p>加密盒子参考文档提到了 <code>guard.sh</code> 等异常检测相关脚本，以及连接脚本的配置。但文档没有提供足够的实现细节来证明其检测规则、阈值和数据注入识别能力。</p>
-<p>这里还有一个需要区分的场景：主动扫描通常会产生可观察的通信行为；纯被动抓包可能不向被监听设备发包，不能仅靠高频流量阈值保证发现。链路加密则可以减少流量被截获后直接暴露业务明文的风险。</p>
+<h3 id="ip">拦截数据修改后，IP 仍然能被发现</h3>
+<p>一开始，我们的检测拦截软件能够拦截攻方对数据的修改，但对方仍然能扫描到 PLC 的 IP。我们尝试返回假的 MAC 值，对方依然能够发现这个地址。这个结果说明，拦截业务数据修改和降低设备的可探测性，需要分别验证。</p>
+<p>后来，我发现可以在防火墙中拦截 ICMPv4 Echo 请求，让普通 ping 得不到回应。但是，这仍然不能拦截同一广播域内的 ARP 探测，因此没有完全解决 IP 被发现的问题。</p>
+<h3 id="ping-arp">普通 ping 与 ARP 探测走的是不同路径</h3>
+<p>复盘时需要把这两个机制分开：普通 IPv4 ping 使用 ICMP Echo 请求和回应；ARP 则用于在本地链路上查询 IPv4 地址对应的 MAC 地址。部分扫描工具把用 ARP 判断主机是否在线的方式称为“ARP ping”，但它不属于 ICMP。</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>能说明什么</th>
+<th>本次方案的局限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据修改被拦截</td>
+<td>当时测试的写入行为受到阻止</td>
+<td>不能据此认定设备地址也无法被发现</td>
+</tr>
+<tr>
+<td>返回假的 MAC 值</td>
+<td>修改了回应中的地址信息</td>
+<td>只要回应仍表明该 IP 存在，就可能继续暴露设备</td>
+</tr>
+<tr>
+<td>拦截 ICMPv4 Echo 请求</td>
+<td>普通 ping 得不到回应</td>
+<td>对同一广播域内的 ARP 探测不直接生效</td>
+</tr>
+<tr>
+<td>在 ARP 层完全不回应</td>
+<td>减少通过 ARP 回应发现设备的机会</td>
+<td>依赖动态 ARP 解析的正常通信也可能失败</td>
+</tr>
+</tbody>
+</table>
+<p>如果简单地让设备不再回应 ARP，其他需要重新解析其 MAC 地址的内网主机也可能无法与它通信。已有邻居缓存、静态 ARP 或不同网络拓扑会影响具体表现，但不能把“不回应 ARP”当作不影响业务的通用隐藏方案。</p>
+<p>这部分方案最终仍有缺陷：让对方普通 ping 不通，并不等于 PLC 的 IP 已被隐藏。记录结果时，应当把数据写入防护、ICMP 可达性和 ARP 可发现性分别说明。</p>
+<p>后续如果继续改进，可以评估网络分区和通信白名单，在保留必要采集与控制通信的前提下限制访问；这些是后续改进方向，不代表本次已经完成的配置。</p>
 <h2 id="section-8">加密任务四：人脸识别与通信准入</h2>
+<p>这是我主要负责的另一部分。我需要配置本地和远端各个 IP，并修改相关自启动文件，让人脸识别模块只在 Server 端进入启动流程。任务同时要求具备活体检测能力。</p>
+<h3 id="_13">分清两端角色与三段网络</h3>
 <p>参考文档给出的拓扑由电脑、Server 加密盒子、Client 加密盒子和设备端组成。电脑连接 Server 侧以太网口，Client 侧连接设备，两盒之间可以通过网线或 Wi-Fi 连接，并配置 VPN 加密隧道。本次项目的设备端是 PLC。</p>
 <p>配置时，需要分别理解电脑侧业务网段、PLC 侧业务网段，以及两盒之间的连接网段。参考文档使用 <code>swanctl</code> 配置中的地址和流量选择器来指定通道两端及受保护的业务网段。端口能连通、地址配置正确和业务流量进入隧道，是需要逐层核对的事情。</p>
+<p>以参考文档中的地址为例，可以把三段网络分开看。下表是文档示例，设备端在原文中是机械臂，不代表本次比赛 PLC 的实际地址：</p>
+<table>
+<thead>
+<tr>
+<th>网络位置</th>
+<th>参考网段</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>电脑侧业务网络</td>
+<td><code>192.168.2.0/24</code></td>
+<td>电脑连接 Server 的 eth0</td>
+</tr>
+<tr>
+<td>两盒互联网络</td>
+<td><code>192.168.31.0/24</code></td>
+<td>Server 与 Client 通过 eth1 或 Wi-Fi 互联</td>
+</tr>
+<tr>
+<td>设备侧业务网络</td>
+<td><code>192.168.44.0/24</code></td>
+<td>Client 的 eth0 连接设备</td>
+</tr>
+</tbody>
+</table>
+<p><code>local_addrs</code> 表示本端用于建立隧道的地址；<code>local_ts</code> 和 <code>remote_ts</code> 则描述隧道保护的本地、远端业务流量范围。对应到上面的例子，Server 的本地业务网段是电脑侧，Client 的本地业务网段是设备侧，所以两端的流量选择器要互相对应。</p>
+<p>隧道两端能够互相访问，只说明互联网络可达；业务通信是否经过隧道，还要看路由、流量选择器和安全关联等配置。参考文档最后的 ping 测试可以帮助检查连通性，但不能单独证明业务数据已经加密。</p>
+<h3 id="_14">人脸识别怎样接入启动过程</h3>
+<p>我在自启动配置里需要处理的一个具体问题，是两端承担的职责不同：人脸识别应该只在 Server 端启动，Client 端按自己的角色完成连接与通信配置。不能把同一套启动项不加区分地放到两个盒子上。</p>
+<p>这项修改也需要和地址配置一起核对。本地地址、远端地址及受保护的业务网段要互相对应，启动项则要符合各自的角色。网络配置和自启动行为都正确，才能继续验证从身份认证到 PLC 通信的完整过程。</p>
 <p>人脸模块通过注册和识别按键完成操作。参考文档描述，系统可能在启动阶段等待人脸认证，通过后再继续进入后续流程；自启动配置涉及人脸识别、连接和异常检测脚本。</p>
-<p>这说明人脸认证被纳入了启动与接入流程。赛题进一步要求活体检测、照片无法通过，以及识别失败时 PLC 无有效通信。但仅凭这份使用说明，不能确认模块的活体检测效果，也不能确认生物特征令牌参与每一帧密钥计算。对这些能力的描述，需要有现场验证记录或更完整的实现资料支撑。</p>
-<h2 id="section-9">后续复查与整理</h2>
+<p>参考文档中，S1 是注册键，S2 是识别键，S3 是复位键；认证通过的终端提示包括 <code>Verify ok</code>。启动顺序由 <code>/etc/init.d/rcS</code> 等配置组织，其中引用了人脸识别程序、<code>S100wlan0.sh</code> 连接脚本和 <code>guard.sh</code> 相关脚本。具体文件内容和启动行为仍要以设备实际版本为准。</p>
+<p>这部分需要关注两个时刻：首次认证之前，系统是否阻止受保护通信；系统已经运行以后，如果认证失效或链路重建，是否仍然需要重新确认身份。启动时先做一次人脸识别，并不能直接说明后续每一条业务通信都持续受到身份校验。</p>
+<h3 id="_15">活体检测还需要单独验证</h3>
+<p>活体检测是任务中的明确要求。人脸识别能否认出注册人员，与能否拒绝照片，并不是同一个验证项目。除了确认本人可以通过，还需要记录照片测试的结果，并观察认证未通过时 PLC 是否仍能收到有效业务数据。</p>
+<p>目前这篇文章记录了我完成的 IP 和自启动配置。照片测试、认证失败后的通信表现，以及生物特征令牌是否参与逐帧密钥计算，仍需要对应记录或实现资料支撑，不能从启动流程直接推断。</p>
+<h2 id="section-9">这次实践留下的几个认识</h2>
 <p>这次项目把自动控制和通信安全放在同一个系统里。正常情况下，按钮命令、PLC 逻辑、变量采集和仿真反馈需要配合；许可或通信出现异常时，也需要明确哪些动作应停止、哪些状态应提示，以及满足什么条件后可以重新启动。</p>
-<p>从资料整理的角度，我接下来最想补齐三部分：实际工位与变量映射、关键控制和校验逻辑，以及现场运行和对抗记录。它们能让这篇复盘从系统说明进一步变成可核对的实现记录。</p>
-<p>本文暂未列出比赛成绩、完整 PLC 程序细节和现场攻防结论。后续补上博图导出的程序块、触摸屏与仿真运行截图后，可以继续展开具体实现。</p>
+<p>回到具体工作，PLC 编程需要把每个元件的动作和复位放在一起考虑，再按工位差异组织流程。任务三则留下了一个尚未解决完整的问题：数据修改受到拦截后，设备仍可能被发现；普通 ping 不通，也不能代替对 ARP 探测的验证。任务四中，两端的地址和启动角色又需要分别配置。</p>
+<p>这些细节比简单写“产线正常运行”或“加密配置完成”更能说明这次做了什么，也说明了方案还存在哪些限制。后续补上实际变量表、程序块、配置差异和运行截图后，可以继续把实现过程写得更具体。</p>
+<p>文中的对抗经过来自我的参赛回忆，尚未附上现场抓包或测试截图；比赛成绩和完整 PLC 程序细节也暂未列出。</p>
 <h2 id="section-10">资料说明</h2>
 <p>本文结合个人项目流程、赛题《智能安全赛—微型工厂模拟产线任务挑战》、加密盒子参考文档及 <code>DeCode.aspx</code> 源码整理。博图项目入口文件标识的兼容版本为 V16；其内部控制逻辑仍需通过博图打开完整项目，或导出程序块后核对。</p>
 <p>文中系统图为重新绘制的逻辑示意；实训装置照片来自赛题文档。原始文档与工程文件未附在博客中。</p><div class="article-end"><a href="index.html#posts">← 回到工控手记</a></div></article><aside class="article-aside" aria-label="文章目录"><p class="aside-label">ON THIS PAGE / 本文目录</p><div class="toc">
@@ -142,7 +312,7 @@ PLC 输入变量 ← 采集与映射 ← 仿真传感器反馈
 <li><a href="#section-6">加密任务二：在 MES 中加入文本加解密页面</a></li>
 <li><a href="#section-7">加密任务三：探测与数据注入对抗</a></li>
 <li><a href="#section-8">加密任务四：人脸识别与通信准入</a></li>
-<li><a href="#section-9">后续复查与整理</a></li>
+<li><a href="#section-9">这次实践留下的几个认识</a></li>
 <li><a href="#section-10">资料说明</a></li>
 </ul>
 </div>
